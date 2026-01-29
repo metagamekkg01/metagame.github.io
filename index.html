@@ -1,0 +1,1139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>三国志リバーシ：英雄の盤上</title>
+<style>
+  :root{
+    --board-size: 800px;
+    --accent:#d32f2f;
+    --muted:#666;
+    /* 本榧・黄金色 */
+    --kaya-base: #eacb88;
+    --kaya-side: #b58d48;
+    /* 漆黒（より濃く） */
+    --urushi-black: #050505;
+  }
+  body{ font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; display:flex; gap:30px; padding:20px; background:#f3f3f3; color:#222; justify-content: center; }
+  
+  .controls{ width:400px; min-width:350px; flex-shrink: 0; display:flex; flex-direction:column; gap:10px; }
+  
+  h1 { font-size: 22px; margin: 0 0 5px 0; color: #333; font-weight: 900; letter-spacing: 1px; }
+  .subtitle { font-size: 12px; color: var(--accent); font-weight: bold; margin-bottom: 10px; display: block; }
+  h3{ margin:0 0 5px 0; font-size:15px; border-bottom:2px solid var(--accent); padding-bottom:4px; display:inline-block; }
+
+  .board-wrap{ width: var(--board-size); position:relative; flex-grow: 0; flex-shrink: 0; margin-top: 60px; }
+  
+  /* --- 盤面（ギザギザ板目 + 適切な余白） --- */
+  .board{ 
+    display:grid; 
+    background-color: var(--kaya-base);
+    background-image: 
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 600 600' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cfilter id='jaggedDisplace'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.03' numOctaves='5' seed='88' result='noise'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='noise' scale='50' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23jaggedDisplace)'%3E%3Cpath d='M-100,500 Q300,50 700,500' fill='none' stroke='rgba(139,90,43,0.35)' stroke-width='25'/%3E%3Cpath d='M-100,600 Q300,100 700,600' fill='none' stroke='rgba(139,90,43,0.25)' stroke-width='20'/%3E%3Cpath d='M-100,700 Q300,180 700,700' fill='none' stroke='rgba(139,90,43,0.3)' stroke-width='30'/%3E%3Cpath d='M-100,-100 Q300,200 700,-100' fill='none' stroke='rgba(139,90,43,0.2)' stroke-width='35'/%3E%3Cpath d='M-50,250 Q200,200 650,350' fill='none' stroke='rgba(139,90,43,0.15)' stroke-width='50'/%3E%3C/g%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E"),
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3) 0%, transparent 70%);
+    background-blend-mode: multiply, overlay, normal;
+    background-size: cover, 200px 200px, cover;
+    
+    border: 15px solid var(--kaya-side); 
+    box-shadow: 
+      0 30px 60px rgba(0,0,0,0.5),
+      -40px -40px 60px -10px rgba(0,0,0,0.7),
+       40px -40px 60px -10px rgba(0,0,0,0.7),
+      -40px  40px 60px -10px rgba(0,0,0,0.7),
+       40px  40px 60px -10px rgba(0,0,0,0.7),
+      inset 0 3px 10px rgba(255,255,255,0.3);
+    
+    /* 【重要修正】余白（padding）を復活させ、盤の「耳」を作る */
+    padding: 24px; 
+    user-select:none; position:relative; width: 100%; box-sizing: border-box;
+  }
+  
+  /* --- 交点（Grid Intersection） --- */
+  .cell {
+    position: relative;
+    box-sizing: border-box;
+    cursor: pointer;
+    background: transparent;
+    aspect-ratio: 1 / 1;
+    border: none; 
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* 横線：くっきりとした漆黒 */
+  .cell::before {
+    content: ""; position: absolute;
+    top: 50%; left: 0; width: 100%; height: 1px; 
+    background: var(--urushi-black);
+    transform: translateY(-50%);
+    z-index: 0;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.15); /* 控えめなハイライトで黒を強調 */
+  }
+  /* 縦線 */
+  .cell::after {
+    content: ""; position: absolute;
+    left: 50%; top: 0; height: 100%; width: 1px;
+    background: var(--urushi-black);
+    transform: translateX(-50%);
+    z-index: 0;
+    box-shadow: 1px 0 0 rgba(255,255,255,0.15);
+  }
+
+  /* --- 盤の端（耳）の処理 --- */
+  /* 線をセルの中心（50%）でピタリと止めることで、綺麗な格子を作る */
+  .cell.top-edge::after { top: 50%; height: 50%; }
+  .cell.bottom-edge::after { height: 50%; }
+  .cell.left-edge::before { left: 50%; width: 50%; }
+  .cell.right-edge::before { width: 50%; }
+
+  /* 星 */
+  .star { 
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); 
+    width:6px; height:6px; border-radius:50%; 
+    background: var(--urushi-black); 
+    box-shadow: 0 1px 1px rgba(0,0,0,0.5); 
+    opacity:1.0; pointer-events:none; z-index: 1;
+  }
+
+  /* --- 【完全復元】究極の碁石（Ultimate Stone CSS） --- */
+  .stone {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 90%; height: 90%; 
+    border-radius: 50%; pointer-events: none; z-index: 10;
+    /* 3層の影で浮遊感と重量感を演出 */
+    box-shadow: 
+      0px 2px 4px rgba(0,0,0,0.6), 
+      3px 6px 12px rgba(0,0,0,0.4), 
+      5px 12px 25px rgba(0,0,0,0.25);
+  }
+  .stone::after {
+    content: ""; position: absolute;
+    top: 5%; left: 8%; width: 45%; height: 30%;
+    border-radius: 50%;
+    /* 強いハイライト */
+    background: radial-gradient(circle at center, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 70%);
+    filter: blur(1px); opacity: 0.9; transform: rotate(-45deg);
+  }
+  .stone.black {
+    /* 那智黒の深みのある黒 */
+    background: radial-gradient(circle at 40% 30%, #333 0%, #000 60%, #000 100%);
+    box-shadow: 
+      inset 0 -3px 4px rgba(255, 255, 255, 0.25), 
+      inset 0 3px 8px rgba(255, 255, 255, 0.4), 
+      1px 3px 2px rgba(0, 0, 0, 0.8), 
+      3px 8px 12px rgba(0, 0, 0, 0.5);
+    border: none;
+  }
+  .stone.white {
+    background-color: #fefdfa; 
+    /* 蛤の縞模様 */
+    background-image: 
+      radial-gradient(circle at 30% 30%, transparent 10%, rgba(160,150,130,0.15) 50%, rgba(120,110,80,0.5) 100%), 
+      repeating-linear-gradient(75deg, transparent 0, transparent 1.5px, rgba(140, 120, 90, 0.1) 2px, transparent 3.5px);
+    box-shadow: 
+      inset -3px -6px 12px rgba(0,0,0,0.3), 
+      inset 2px 2px 5px rgba(255,255,255,1), 
+      1px 3px 3px rgba(0, 0, 0, 0.65), 
+      4px 8px 15px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  .stone.white::after { opacity: 0.7; filter: blur(2px); }
+  
+  .hint{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:15%; height:15%; border-radius:50%; background: rgba(0,0,0,0.4); pointer-events:none; z-index:5; }
+  .targetable { cursor: crosshair !important; }
+  .targetable::after { content: ""; position: absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:30%; height:30%; border: 2px solid #ff0000; border-radius:50%; background: rgba(255, 0, 0, 0.2); z-index: 20; pointer-events: none; animation: pulse 1.5s infinite; }
+  
+  .selected-mark { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background: #ff0000; color: #fff; width: 24px; height: 24px; border-radius: 50%; font-weight: bold; font-size: 14px; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 30; pointer-events: none; }
+  .seal-mark { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:rgba(200,0,0,0.8); font-size:28px; font-weight:bold; pointer-events:none; z-index:5; text-shadow:0 2px 4px rgba(255,255,255,0.8); }
+  .best-move-hint::before { content: "★"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 28px; color: #FFD700; z-index: 25; pointer-events: none; text-shadow: 0 0 5px #000; animation: blink 1s infinite; }
+
+  /* UI周り（変更なし） */
+  .info{ padding:10px; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06); transition: opacity 0.3s; }
+  .info.disabled-panel { opacity: 0.5; pointer-events: none; background: #eee; }
+  button, select, input[type="radio"]{ padding:8px 10px; border-radius:6px; border:1px solid #ccc; background:#fff; cursor:pointer; font-size: 13px; }
+  button:disabled{ opacity:0.6; cursor:not-allowed; }
+  select:disabled, input:disabled+label, input:disabled { opacity: 0.6; cursor: not-allowed; background-color: #eee; }
+  #turnText { font-size: 24px; font-weight: 900; margin-bottom: 8px; color: #111; display: block; }
+  .stone-count-wrap { display: flex; gap: 20px; align-items: center; margin-top: 5px; }
+  .stone-count-item { font-size: 18px; font-weight: bold; }
+  #blackCount, #whiteCount { font-size: 28px; margin-left: 5px; }
+  .phase-badge { display: inline-block; padding: 6px 12px; border-radius: 8px; background: #fff; border: 2px solid #eee; font-weight: 800; color: var(--muted); font-size: 14px; text-align: center; min-width: 90px; }
+  .log{ height:120px; overflow-y:auto; background:#fff; padding:8px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06); font-size:12px; color:#222; margin-top: 5px; }
+  .entry{ margin-bottom:4px; padding-bottom:4px; border-bottom:1px dashed #eee; }
+  .who{ font-weight:700; margin-right:4px; }
+  .skillName{ font-weight:700; color:var(--accent); }
+  .skill-desc-box { font-size: 12px; color: #444; background: #f9f9f9; padding: 6px; border-radius: 4px; width: 100%; box-sizing: border-box; border-left: 4px solid var(--accent); margin-bottom: 5px;}
+  .history-box { font-size: 13px; color:#444; line-height: 1.5; padding: 5px; background:#f9f9f9; border-radius:4px; }
+  .history-row { display:flex; justify-content:space-between; border-bottom:1px solid #ddd; padding: 2px 0; }
+  .btn-row { display: flex; gap: 6px; width: 100%; }
+  .overlay{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:100; }
+  .thinking{ pointer-events:auto; background:rgba(0,0,0,0.7); color:#fff; padding:15px 20px; border-radius:12px; font-weight:600; font-size: 18px; }
+  .skill-panel{ display:flex; gap:8px; align-items:flex-start; margin-top:8px; flex-direction: column; }
+  .pending-ui{ position:absolute; right: 0; top: -55px; background:rgba(255,255,255,0.98); padding:10px 16px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:40; display:flex; gap:12px; align-items:center; border: 2px solid var(--accent); }
+  .modal { display: none; position: fixed; z-index: 200; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); }
+  .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 900px; border-radius: 12px; position:relative; }
+  .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+  .close:hover { color: #000; }
+  .skill-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+  .skill-table th, .skill-table td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+  .skill-table th { background-color: #f2f2f2; font-weight: bold; color: #333; }
+  .skill-table tr:nth-child(even){background-color: #f9f9f9;}
+  .skill-table tr:hover {background-color: #f1f1f1;}
+  .rank-badge { display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; color:#fff; background:#555; }
+  @media(max-width:1300px){ body{ flex-direction:column; align-items:center; } .controls{ width:95vw; } .board-wrap{ width:95vw; } :root { --board-size: 90vw; } }
+</style>
+</head>
+<body>
+  <script>
+    const AudioEngine = (() => {
+        // 囲碁・碁石を打つ02.mp3
+        const STONE_SOUND_DATA = "data:audio/mp3;base64,//uQZAAAAAAAABAAAAAAAAAAAAAP/7kGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVEFNRTMuOTkuNaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+
+        const audio = new Audio(STONE_SOUND_DATA);
+        audio.volume = 0.8;
+
+        function playStoneSound() {
+            const clone = audio.cloneNode();
+            clone.playbackRate = 0.95 + Math.random() * 0.1;
+            clone.play().catch(e => console.log("Audio play blocked", e));
+        }
+
+        return { playStoneSound };
+    })();
+  </script>
+
+  <div class="controls">
+    <div>
+      <h1>三国志リバーシ</h1>
+      <span class="subtitle">〜 英雄の盤上 〜</span>
+    </div>
+
+    <div class="info">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3>ゲーム設定</h3>
+        <button id="showSkillListBtn" style="background:#007bff; color:white; font-size:12px;">戦術一覧</button>
+      </div>
+      <div style="margin-top:5px">
+        <label><input type="radio" name="mode" value="cpu" id="modeCpu" checked> CPU戦</label>
+        <label style="margin-left:10px"><input type="radio" name="mode" value="pvp" id="modePvp"> 個人対個人</label>
+      </div>
+      
+      <div style="margin-top:8px;">
+        <label><strong>CPU強さ：</strong>
+          <select id="cpuStrength">
+            <option>一般兵</option><option>兵長</option><option selected>副将</option>
+            <option>偏将軍</option><option>将軍</option><option>驃騎将軍</option>
+            <option>大将軍</option><option>大都督</option><option>軍師</option>
+            <option>皇帝</option><option>覇王</option>
+          </select>
+        </label>
+      </div>
+
+      <div style="margin-top:8px;">
+        <strong>あなたの手番（CPU戦用）:</strong>
+        <div style="margin-top:5px;">
+          <label><input type="radio" name="userSide" value="black" checked> 黒 (先手)</label>
+          <label style="margin-left:10px"><input type="radio" name="userSide" value="white"> 白 (後手)</label>
+        </div>
+      </div>
+    </div>
+
+    <div id="panelA" class="info">
+      <div><strong id="playerALabel">プレイヤーA（黒）</strong></div>
+      <div style="margin-top:5px; display:flex; gap:5px;">
+        <select id="rankA">
+            <option>一般兵</option><option>兵長</option><option selected>副将</option>
+            <option>偏将軍</option><option>将軍</option><option>驃騎将軍</option>
+            <option>大将軍</option><option>大都督</option><option>軍師</option>
+            <option>皇帝</option><option>覇王</option>
+        </select>
+        <label style="flex:1">武将：<select id="charA" style="width:100%"></select></label>
+      </div>
+      <div class="skill-panel">
+        <div id="skillInfoA" class="skill-desc-box"></div>
+        <div class="btn-row">
+            <button id="prepareA">戦術準備（A）</button>
+            <button id="confirmA" disabled>戦術確定</button>
+            <button id="cancelA" style="display:none;">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panelB" class="info">
+      <div><strong id="playerBLabel">プレイヤーB（白）</strong></div>
+      <div style="margin-top:5px; display:flex; gap:5px;">
+        <select id="rankB">
+            <option>一般兵</option><option>兵長</option><option selected>副将</option>
+            <option>偏将軍</option><option>将軍</option><option>驃騎将軍</option>
+            <option>大将軍</option><option>大都督</option><option>軍師</option>
+            <option>皇帝</option><option>覇王</option>
+        </select>
+        <label style="flex:1">武将：<select id="charB" style="width:100%"></select></label>
+      </div>
+      <div class="skill-panel">
+        <div id="skillInfoB" class="skill-desc-box"></div>
+        <div class="btn-row">
+            <button id="prepareB">戦術準備（B）</button>
+            <button id="confirmB" disabled>戦術確定</button>
+            <button id="cancelB" style="display:none;">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="info">
+      <div style="justify-content:space-between; display:flex; align-items:center;">
+        <div>
+          <label>盤面：<select id="sizeSelect"><option value="13">13×13</option><option value="19" selected>19×19</option></select></label>
+          <button id="startBtn" style="background:#4CAF50; color:white; font-weight:bold;">スタート</button>
+          <button id="newGameBtn">リセット</button>
+          <button id="passBtn" style="display:none; background:#ffeba7;">パス</button>
+        </div>
+        <div class="phase-badge" id="phaseBadge">フェーズ：序盤<br><span style="font-size:12px;">(0%)</span></div>
+      </div>
+      <div style="margin-top:10px; border-top: 1px solid #eee; padding-top: 8px;">
+        <strong id="turnText">黒の番</strong>
+        <div class="stone-count-wrap">
+          <div class="stone-count-item">黒：<span id="blackCount">0</span></div>
+          <div class="stone-count-item">白：<span id="whiteCount">0</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info">
+      <h3>戦歴 & ログ</h3>
+      <div class="history-box" id="historyDisplay">読み込み中...</div>
+      <div style="text-align:right; margin-bottom:5px;">
+        <button onclick="resetHistory()" style="font-size:11px; background:#eee; padding:4px 8px;">履歴リセット</button>
+      </div>
+      <div class="log" id="actionLog"></div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div id="board" class="board"></div>
+    <div id="pendingUI" class="pending-ui" style="display:none;">
+      <strong style="color:#d32f2f">ターゲット選択中</strong>
+      <span id="pendingDetail">残り: 0</span>
+      <button id="cancelPendingBtn">中止</button>
+    </div>
+    <div id="overlay" class="overlay" style="display:none;"><div class="thinking" id="thinkingBox">思考中...</div></div>
+  </div>
+
+  <div id="skillModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>武将戦術一覧表</h2>
+      <div style="overflow-x:auto;">
+        <table class="skill-table" id="skillListTable">
+          <thead>
+            <tr>
+              <th>ランク</th>
+              <th>武将名</th>
+              <th>戦術効果</th>
+              <th>タイプ</th>
+              <th>解禁(%)</th>
+              <th>回数</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+const STORAGE_KEY = 'sangoku_reversi_history_final';
+let historyData = { cpu: { win:0, loss:0, draw:0 }, pvp: { black:0, white:0, draw:0 } };
+
+function loadHistory() {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if(data) { try { historyData = JSON.parse(data); } catch(e){} }
+    renderHistoryUI();
+}
+
+function saveHistory(mode, winner, userSideColor) {
+    if(mode === 'cpu') {
+        if(winner === 0) historyData.cpu.draw++;
+        else if(winner === userSideColor) historyData.cpu.win++;
+        else historyData.cpu.loss++;
+    } else {
+        if(winner === 0) historyData.pvp.draw++;
+        else if(winner === 1) historyData.pvp.black++;
+        else historyData.pvp.white++;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(historyData));
+    renderHistoryUI();
+}
+
+function renderHistoryUI() {
+    const html = `
+      <div class="history-row">
+        <strong>CPU戦</strong> 
+        <span style="font-size:12px">勝:${historyData.cpu.win} 負:${historyData.cpu.loss} 分:${historyData.cpu.draw}</span>
+      </div>
+      <div class="history-row" style="border-bottom:none">
+        <strong>対人戦</strong> 
+        <span style="font-size:12px">黒:${historyData.pvp.black} 白:${historyData.pvp.white} 分:${historyData.pvp.draw}</span>
+      </div>
+    `;
+    document.getElementById('historyDisplay').innerHTML = html;
+}
+window.resetHistory = function() {
+    if(confirm('戦歴をリセットしますか？')) {
+        historyData = { cpu: { win:0, loss:0, draw:0 }, pvp: { black:0, white:0, draw:0 } };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(historyData));
+        renderHistoryUI();
+    }
+};
+
+// --- GAME LOGIC ---
+(() => {
+  const CHAR = [
+    {id:'cao_cao_special', name:'曹操(覇王の逆転)', desc:'[自動] 劣勢時(差15以上)、最大25個の敵石を味方化', uses:1, targets:0, rankName:'覇王', unlock:70},
+    {id:'cao_cao', name:'曹操(通常)', desc:'[自動] 上位の敵石を最大8個味方化する', uses:1, targets:0, rankName:'皇帝', unlock:60},
+    {id:'liu_bei', name:'劉備', desc:'[選択] 指定した空きマスに3石を直接配置', uses:2, targets:3, rankName:'皇帝', unlock:60}, 
+    {id:'sun_quan', name:'孫権', desc:'[選択] 指定した敵石3個を強制的に味方化', uses:2, targets:3, rankName:'皇帝', unlock:60},
+    {id:'cao_pi', name:'曹丕', desc:'[自動] ランダムな敵石5個を味方化', uses:1, targets:0, rankName:'皇帝', unlock:60},
+    
+    {id:'zhuge', name:'諸葛孔明', desc:'[自動] AIが考える「最善手」を光らせて指南', uses:2, targets:0, rankName:'軍師', unlock:55},
+    {id:'sima_yi', name:'司馬懿', desc:'[選択] 指定範囲の敵石を全て味方化(19路:5x5/13路:3x3)', uses:1, targets:1, rankName:'軍師', unlock:55},
+    {id:'zhou_yu', name:'周瑜', desc:'[選択] 指定範囲の敵石を全て焼き払う(19路:7x7/13路:3x3)', uses:1, targets:1, rankName:'軍師', unlock:55},
+    
+    // 大将軍: Unlock 50%, CD:3, Uses:2
+    {id:'guan_yu', name:'関羽', desc:'[選択] 敵石除去(19路:2x2範囲/13路:任意の2個)', uses:2, cd:3, targets:2, rankName:'大将軍', unlock:50}, 
+    {id:'cao_xiu', name:'曹休', desc:'[選択] 指定した行(横)の敵石を制圧', uses:2, cd:3, targets:1, rankName:'大将軍', unlock:50},
+    {id:'cao_zhen', name:'曹真', desc:'[選択] 指定した列(縦)の敵石を制圧', uses:2, cd:3, targets:1, rankName:'大将軍', unlock:50},
+
+    // 驃騎将軍: Unlock 45%, Uses:2
+    {id:'zhang_fei', name:'張飛', desc:'[選択] 指定した空きマスを封印(着手不可)', uses:2, targets:1, rankName:'驃騎将軍', unlock:45}, 
+    {id:'gan_ning', name:'甘寧', desc:'[選択] 指定した敵石1個を強奪(奇襲)', uses:2, targets:1, rankName:'驃騎将軍', unlock:45}, 
+    {id:'zhang_he', name:'張郃', desc:'[自動] 局所操作を行う', uses:2, targets:0, rankName:'驃騎将軍', unlock:45},
+
+    // 車騎将軍: Unlock 40%, Uses:3
+    {id:'zhao_yun', name:'趙雲', desc:'[選択] 指定した敵石1個を反転(味方化)', uses:3, targets:1, rankName:'車騎将軍', unlock:40},
+    {id:'huang_gai', name:'黄蓋', desc:'[選択] 指定した敵石1個を盤上から除去(破壊)', uses:3, targets:1, rankName:'車騎将軍', unlock:40},
+    {id:'ling_tong', name:'凌統', desc:'[自動] 敵の移動可能箇所を2つ封印', uses:3, targets:0, rankName:'車騎将軍', unlock:40},
+
+    // 副将: Unlock 35%, Uses:4
+    {id:'wei_sub', name:'魏副将', desc:'[選択] 指定した敵石(角以外)を味方化', uses:4, targets:1, rankName:'副将', unlock:35},
+    {id:'shu_sub', name:'蜀副将', desc:'[選択] 指定した空きに1石配置', uses:4, targets:1, rankName:'副将', unlock:35},
+    {id:'wu_sub', name:'呉副将', desc:'[選択] 指定した敵石(角限定)を味方化', uses:4, targets:1, rankName:'副将', unlock:35},
+
+    // 一般兵: Unlock 25%, Uses:5 (Wu=4)
+    {id:'wei_soldier', name:'魏一般兵', desc:'[選択] 空き(角以外)に1石配置', uses:5, cd:4, targets:1, rankName:'一般兵', unlock:25},
+    {id:'shu_soldier', name:'蜀一般兵', desc:'[選択] 指定した敵石1つを反転', uses:5, cd:4, targets:1, rankName:'一般兵', unlock:25},
+    {id:'wu_soldier', name:'呉一般兵', desc:'[選択] 空き(角限定)に1石配置', uses:4, cd:4, targets:1, rankName:'一般兵', unlock:25}
+  ];
+  const META = {}; CHAR.forEach(c => META[c.id] = c);
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+
+  let board = [], N = 19, current = 1, moveCount = 0, gameActive = false;
+  let ownerColorA = 1, ownerColorB = 2, pendingSkill = null, sealedMoves = [];
+  const skillUses = {1:{}, 2:{}};
+  const skillLastTurn = {1:{}, 2:{}};
+  let cpuTimeoutId = null;
+  let userColor = 1;
+  let bestMoveHint = null;
+
+  const boardEl = document.getElementById('board');
+  const actionLog = document.getElementById('actionLog');
+  const cpuStrengthSelect = document.getElementById('cpuStrength');
+  const modeCpu = document.getElementById('modeCpu');
+  const modePvp = document.getElementById('modePvp');
+  const sizeSelect = document.getElementById('sizeSelect');
+  const charASelect = document.getElementById('charA');
+  const charBSelect = document.getElementById('charB');
+  const phaseBadge = document.getElementById('phaseBadge');
+  const pendingUI = document.getElementById('pendingUI');
+  const pendingDetail = document.getElementById('pendingDetail');
+  const passBtn = document.getElementById('passBtn');
+  const overlay = document.getElementById('overlay');
+
+  const modal = document.getElementById('skillModal');
+  const btn = document.getElementById('showSkillListBtn');
+  const span = document.getElementsByClassName('close')[0];
+  
+  btn.onclick = () => {
+      const tbody = document.querySelector('#skillListTable tbody');
+      tbody.innerHTML = '';
+      CHAR.forEach(c => {
+          let typeStr = '自動';
+          if(c.targets > 0) typeStr = '選択';
+          if(c.id === 'cao_xiu') typeStr = '選択(行)';
+          if(c.id === 'cao_zhen') typeStr = '選択(列)'; 
+          if(c.id === 'zhou_yu' || c.id === 'sima_yi') typeStr = '選択(範囲)';
+          const row = `<tr>
+            <td><span class="rank-badge">${c.rankName}</span></td>
+            <td style="font-weight:bold">${c.name}</td>
+            <td>${c.desc}</td>
+            <td>${typeStr}</td>
+            <td>${c.unlock}%</td>
+            <td>${c.uses}</td>
+          </tr>`;
+          tbody.innerHTML += row;
+      });
+      modal.style.display = 'block';
+  }
+  span.onclick = () => modal.style.display = 'none';
+  window.onclick = (e) => { if(e.target === modal) modal.style.display = 'none'; }
+
+  function inBounds(r,c){ return r>=0 && r<N && c>=0 && c<N; }
+  function isCorner(r,c){ return (r===0||r===N-1)&&(c===0||c===N-1); }
+
+  function getFlips(r,c,color, b=board){
+    if(b[r][c] !== 0) return [];
+    const opp = 3-color; const flips=[];
+    for(const [dr,dc] of dirs){
+      let rr=r+dr, cc=c+dc; const line=[];
+      while(inBounds(rr,cc) && b[rr][cc]===opp){ line.push([rr,cc]); rr+=dr; cc+=dc; }
+      if(line.length>0 && inBounds(rr,cc) && b[rr][cc]===color) flips.push(...line);
+    }
+    return flips;
+  }
+  function computeLegalMoves(color, b=board){
+    const moves=[];
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      if(b===board && sealedMoves.some(s=>s[0]===r && s[1]===c)) continue;
+      if(b[r][c]===0 && getFlips(r,c,color,b).length>0) moves.push([r,c]);
+    }
+    return moves;
+  }
+  function countStones(){
+    let b=0, w=0;
+    if(board && board.length) board.forEach(row=>row.forEach(v=>{if(v===1)b++; if(v===2)w++;}));
+    return {b,w};
+  }
+  function getCurrentPercent(){ return Math.floor(((countStones().b + countStones().w) / (N*N)) * 100); }
+
+  function getPhaseName(){
+    const p = getCurrentPercent();
+    let anyCornerTaken = false;
+    if(board.length > 0){
+        if(board[0][0]!==0 || board[0][N-1]!==0 || board[N-1][0]!==0 || board[N-1][N-1]!==0) anyCornerTaken=true;
+    }
+    if (p >= 90) return '最終局面(掃討戦)';
+    if (p >= 70) return '後半(決戦・包囲)';
+    if (anyCornerTaken || (p >= 40)) return '中盤(激戦・野戦)';
+    if (p >= 20) return '前半(前哨戦)';
+    return '序盤(布陣)';
+  }
+  
+  function isStarPoint(r,c){ if(N===19){ const pts=[3,9,15]; return pts.includes(r) && pts.includes(c); } if(N===13){ const pts=[3,6,9]; return pts.includes(r) && pts.includes(c); } return false; }
+
+  function appendLog(playerColor, skillName, skillDesc){
+    const who = (playerColor===1) ? '黒' : '白';
+    const entry = document.createElement('div');
+    entry.className='entry';
+    const t = new Date(); 
+    entry.innerHTML = `<div><span class="who">${who}</span><span class="skillName">${skillName}</span> <span style="color:#888">(${t.toLocaleTimeString()})</span></div><div style="margin-top:4px;color:#444">${skillDesc}</div>`;
+    actionLog.insertBefore(entry, actionLog.firstChild);
+  }
+
+  function determineTargetType(charId){
+    if(['liu_bei','zhang_fei','wei_soldier','wu_soldier','shu_sub'].includes(charId)) return 'empty';
+    if(['zhao_yun','gan_ning','shu_soldier','sun_quan','wei_sub','wu_sub','huang_gai'].includes(charId)) return 'enemy';
+    if(charId === 'guan_yu') return (N === 19) ? 'any' : 'enemy'; 
+    if(charId === 'cao_xiu') return 'row';
+    if(charId === 'cao_zhen') return 'col';
+    if(charId === 'zhou_yu' || charId === 'sima_yi') return 'any'; 
+    return 'none';
+  }
+
+  function isCellTargetableForPending(r,c,pending){
+      const t = pending.targetType;
+      const cid = pending.charId;
+      if(sealedMoves.some(s=>s[0]===r && s[1]===c)) return false;
+      
+      if(cid === 'wu_soldier' && !isCorner(r,c)) return false; 
+      if(cid === 'wei_soldier' && isCorner(r,c)) return false; 
+      if(cid === 'wu_sub' && !isCorner(r,c)) return false;     
+      if(cid === 'wei_sub' && isCorner(r,c)) return false;     
+
+      if(t==='empty') return board[r][c]===0;
+      if(t==='enemy') return board[r][c]===3-pending.playerColor; 
+      if(t==='row') return true;
+      if(t==='col') return true; 
+      if(t==='any') return true;
+      return false;
+  }
+
+  function handlePendingSelection(r,c){
+      if(!pendingSkill) return;
+      if(!isCellTargetableForPending(r,c,pendingSkill)) return;
+      const t = pendingSkill.targetType;
+      
+      if (pendingSkill.charId === 'guan_yu' && N === 19) {
+          pendingSkill.selections = [[r,c]];
+          pendingSkill.remainingTargets = 0;
+      }
+      else if(t==='row'){
+          pendingSkill.selections = [[r,-1]];
+          pendingSkill.remainingTargets = 0;
+      } else if(t==='col'){ 
+          pendingSkill.selections = [[-1,c]];
+          pendingSkill.remainingTargets = 0;
+      } else {
+          if (pendingSkill.charId === 'zhou_yu' || pendingSkill.charId === 'sima_yi') {
+              pendingSkill.selections = [[r,c]];
+              pendingSkill.remainingTargets = 0;
+          } else {
+              const existsIdx = pendingSkill.selections.findIndex(s=>s[0]===r && s[1]===c);
+              if(existsIdx>=0){
+                  pendingSkill.selections.splice(existsIdx,1); pendingSkill.remainingTargets++;
+              } else if(pendingSkill.remainingTargets>0){
+                  pendingSkill.selections.push([r,c]); pendingSkill.remainingTargets--;
+              }
+          }
+      }
+      renderBoard(); updatePendingUI();
+  }
+
+  function prepareSkill(playerColor, charId){
+    const meta = META[charId];
+    if(skillUses[playerColor][charId] >= meta.uses) return alert('使用回数上限です。');
+    if(getCurrentPercent() < meta.unlock) return alert(`この武将は盤面${meta.unlock}%から解禁です。`);
+    
+    const last = skillLastTurn[playerColor][charId];
+    if(meta.cd && last !== undefined && (moveCount - last < meta.cd)){
+         return alert(`この戦術はクールダウン中です。（あと${meta.cd - (moveCount - last)}手）`);
+    }
+
+    let tg = meta.targets || 0;
+    if(charId === 'guan_yu' && N === 19) tg = 1;
+
+    pendingSkill = { playerColor, charId, remainingTargets: tg, targetType: determineTargetType(charId), selections: [] };
+    boardEl.classList.add('skill-mode');
+    pendingUI.style.display='flex';
+    updatePendingUI();
+    const isP1 = (playerColor === ownerColorA);
+    const confirmBtn = isP1 ? document.getElementById('confirmA') : document.getElementById('confirmB');
+    const cancelBtn = isP1 ? document.getElementById('cancelA') : document.getElementById('cancelB');
+    confirmBtn.disabled = false;
+    cancelBtn.style.display = 'inline-block';
+    renderBoard();
+  }
+
+  function confirmPending(playerColor){
+    if(!pendingSkill || pendingSkill.playerColor !== playerColor) return;
+    if(pendingSkill.remainingTargets > 0) return alert('ターゲット数が足りません。');
+    const charId = pendingSkill.charId;
+    skillUses[playerColor][charId]++;
+    skillLastTurn[playerColor][charId] = moveCount; 
+
+    let msg = "";
+    if(pendingSkill.selections.length > 0){
+        for(const sel of pendingSkill.selections) msg = applySkillEffect(playerColor, charId, sel[0], sel[1]);
+    } else { msg = applySkillEffect(playerColor, charId, -1, -1); }
+    appendLog(playerColor, META[charId].name, msg);
+    
+    cancelPending(playerColor); 
+    if(charId !== 'zhuge') finishTurn(); else renderBoard();
+  }
+
+  function cancelPending(playerColor){
+    pendingSkill = null; 
+    boardEl.classList.remove('skill-mode');
+    pendingUI.style.display='none';
+    const isP1 = (playerColor === ownerColorA);
+    const confirmBtn = isP1 ? document.getElementById('confirmA') : document.getElementById('confirmB');
+    const cancelBtn = isP1 ? document.getElementById('cancelA') : document.getElementById('cancelB');
+    confirmBtn.disabled = true;
+    cancelBtn.style.display = 'none';
+    renderBoard();
+  }
+
+  function updatePendingUI(){
+      if(pendingSkill) pendingDetail.textContent = `${META[pendingSkill.charId].name}: 残り選択 ${pendingSkill.remainingTargets}`;
+  }
+
+  function applySkillEffect(playerColor, charId, tr, tc){
+     if(tr !== -1 || tc !== -1) { 
+         if(charId === 'zhou_yu'){
+             const opp = 3-playerColor; let burntCount = 0;
+             let radius = (N===19) ? 3 : 1; 
+             for(let r = tr-radius; r <= tr+radius; r++){
+                 for(let c = tc-radius; c <= tc+radius; c++){
+                     if(inBounds(r,c) && board[r][c] === opp){ board[r][c] = 0; burntCount++; }
+                 }
+             }
+             return `中心(${tr+1},${tc+1})周囲${burntCount}個焼却`;
+         }
+         if(charId === 'sima_yi'){
+             const opp = 3-playerColor; let convCount = 0;
+             let radius = (N===19) ? 2 : 1; 
+             for(let r = tr-radius; r <= tr+radius; r++){
+                 for(let c = tc-radius; c <= tc+radius; c++){
+                     if(inBounds(r,c) && board[r][c] === opp){ board[r][c] = playerColor; convCount++; }
+                 }
+             }
+             return `中心(${tr+1},${tc+1})周囲${convCount}個寝返り`;
+         }
+         
+         if(charId === 'cao_xiu'){ 
+             const opp=3-playerColor;
+             for(let c=0;c<N;c++) if(board[tr][c]===opp) board[tr][c]=playerColor;
+             return `行${tr+1}を制圧`;
+         }
+         if(charId === 'cao_zhen'){ 
+             const opp=3-playerColor;
+             for(let r=0;r<N;r++) if(board[r][tc]===opp) board[r][tc]=playerColor;
+             return `列${tc+1}を制圧`;
+         }
+         
+         if(tc !== -1){ 
+             if(['liu_bei','wei_soldier','wu_soldier','shu_sub'].includes(charId)){ board[tr][tc]=playerColor; return `(${tr+1},${tc+1})配置`; }
+             if(charId === 'guan_yu' && N === 19){
+                 let remC = 0;
+                 [[0,0],[0,1],[1,0],[1,1]].forEach(off=>{
+                     let rr=tr+off[0], cc=tc+off[1];
+                     if(inBounds(rr,cc) && board[rr][cc] === 3-playerColor){ board[rr][cc]=0; remC++; }
+                 });
+                 return `(${tr+1},${tc+1})起点に${remC}個除去`;
+             }
+             if(charId === 'guan_yu' || charId === 'huang_gai'){ board[tr][tc]=0; return `(${tr+1},${tc+1})除去`; } 
+             if(['gan_ning','zhao_yun','shu_soldier','sun_quan','wei_sub','wu_sub'].includes(charId)){ board[tr][tc]=playerColor; return `(${tr+1},${tc+1})強奪`; }
+             if(charId === 'zhang_fei'){ sealedMoves.push([tr,tc]); return `(${tr+1},${tc+1})封印`; }
+         }
+         return '戦術発動';
+     } 
+     else { 
+         if(charId==='zhuge') {
+             const moves = computeLegalMoves(playerColor);
+             let best = null; let bestScore = -Infinity;
+             for(const [r,c] of moves){
+                 const nextB = board.map(row=>[...row]);
+                 const fs = getFlips(r,c,player,nextB);
+                 nextB[r][c]=player; fs.forEach(f=>nextB[f[0]][f[1]]=playerColor);
+                 let s = evaluateBoard(nextB, player, 10); 
+                 if(s > bestScore){ bestScore = s; best = [r,c]; }
+             }
+             if(best){
+                 bestMoveHint = best; 
+                 setTimeout(() => { bestMoveHint = null; renderBoard(); }, 4000); 
+                 return '最善手指南';
+             }
+             return '有効手なし';
+         }
+         if(charId==='cao_pi'){ 
+             const cands=[]; for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(board[r][c]===3-playerColor) cands.push([r,c]);
+             if(cands.length){ 
+                 const t=cands.sort(()=>0.5-Math.random()).slice(0,5); 
+                 t.forEach(p=>board[p[0]][p[1]]=playerColor); 
+             }
+             return '勅令(5個改変)';
+         }
+         if(['liang_ning','zhang_he'].some(id=>charId===id)){ 
+             const cands=[]; for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(board[r][c]===3-playerColor) cands.push([r,c]);
+             if(cands.length){ const t=cands[Math.floor(Math.random()*cands.length)]; board[t[0]][t[1]]=playerColor; }
+             return '敵石調略';
+         }
+         if(charId==='ling_tong'){
+             const opp=3-playerColor; const l=computeLegalMoves(opp); const s=l.sort(()=>0.5-Math.random()).slice(0,2);
+             sealedMoves.push(...s); return '移動封印';
+         }
+         if(charId.startsWith('cao_cao')){
+             const opp=3-playerColor; const targets=[];
+             [[0,0],[0,N-1],[N-1,0],[N-1,N-1]].forEach(p=>{if(board[p[0]][p[1]]===opp) targets.push(p);});
+             let limit=(charId==='cao_cao_special')?25:8; 
+             for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(board[r][c]===opp) targets.push([r,c]);
+             const act=targets.slice(0,limit); act.forEach(t=>board[t[0]][t[1]]=playerColor); 
+             return `敵石${act.length}個制圧`;
+         }
+         return '戦術発動';
+     }
+  }
+
+  function evaluateBoard(b, player, level = 2){
+    const opp = 3-player;
+    let myScore=0, oppScore=0;
+    const myMoves = computeLegalMoves(player, b).length;
+    const oppMoves = computeLegalMoves(opp, b).length;
+
+    let w_corner=50, w_danger=-20, w_edge=5, w_mobility=10, w_disc_diff=1;
+    if(level <= 3) { w_corner = 10; w_danger = -5; w_edge = 2; w_mobility = 2; w_disc_diff = 20; }
+    else if(level <= 6) { w_corner = 60; w_danger = -30; w_edge = 10; w_mobility = 8; w_disc_diff = 5; }
+    else if(level <= 8) { w_corner = 80; w_danger = -40; w_edge = 15; w_mobility = 30; w_disc_diff = -2; }
+    else { w_corner = 100; w_danger = -50; w_edge = 20; w_mobility = 25; w_disc_diff = 10; }
+
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        if(b[r][c]===0) continue;
+        let w = 1;
+        if((r===0||r===N-1)&&(c===0||c===N-1)) w = w_corner;
+        else if((r===1||r===N-2)&&(c===1||c===N-2) && (r===0||r===N-1||c===0||c===N-1)) w = w_danger;
+        else if(r===0||r===N-1||c===0||c===N-1) w = w_edge;
+        if(b[r][c]===player) myScore += w; else oppScore += w;
+      }
+    }
+    return (myScore - oppScore) + (myMoves - oppMoves)*w_mobility + (countStones().b - countStones().w)*(player===1?1:-1)*w_disc_diff;
+  }
+
+  function minimax(b, depth, isMax, player, alpha, beta, startTime, timeLimit, level){
+    if(depth === 0 || Date.now() - startTime > timeLimit) return evaluateBoard(b, player, level);
+    const moves = computeLegalMoves(isMax ? player : 3-player, b);
+    if(moves.length === 0) return evaluateBoard(b, player, level);
+    if(isMax){
+      let v = -Infinity;
+      for(const [r,c] of moves){
+        const nextB = b.map(row=>[...row]);
+        const fs = getFlips(r,c,player,nextB);
+        nextB[r][c]=player; fs.forEach(f=>nextB[f[0]][f[1]]=player);
+        v = Math.max(v, minimax(nextB, depth-1, false, player, alpha, beta, startTime, timeLimit, level));
+        alpha = Math.max(alpha, v); if(beta<=alpha) break;
+      }
+      return v;
+    } else {
+      let v = Infinity;
+      for(const [r,c] of moves){
+        const nextB = b.map(row=>[...row]);
+        const opp = 3-player;
+        const fs = getFlips(r,c,opp,nextB);
+        nextB[r][c]=opp; fs.forEach(f=>nextB[f[0]][f[1]]=opp);
+        v = Math.min(v, minimax(nextB, depth-1, true, player, alpha, beta, startTime, timeLimit, level));
+        beta = Math.min(beta, v); if(beta<=alpha) break;
+      }
+      return v;
+    }
+  }
+
+  function tryCpuSkill(){
+      if(!modeCpu.checked) return false;
+      const cpuColor = current; 
+      let bestChar = null; let maxScore = -1; let targetArgs = {tr:-1, tc:-1};
+      const counts = countStones();
+      const isLosingBadly = (counts[3-cpuColor] > counts[cpuColor] + 15);
+      const currentPercent = getCurrentPercent();
+
+      CHAR.forEach(char => {
+          if(currentPercent < char.unlock) return;
+          if(skillUses[cpuColor][char.id] >= char.uses) return;
+          const last = skillLastTurn[cpuColor][char.id];
+          if(char.cd && last && (moveCount - last < char.cd)) return;
+
+          let score = Math.random() * 20; let tr=-1, tc=-1;
+          if(char.id === 'cao_cao_special' && isLosingBadly) score += 200;
+          if(char.rankName === '皇帝' && isLosingBadly) score += 50;
+          
+          const tType = determineTargetType(char.id);
+          if(char.id === 'zhou_yu' || char.id === 'sima_yi'){
+              let maxEffect = -1;
+              let radius = (N===19) ? (char.id==='zhou_yu'?3:2) : 1; 
+              for(let r=radius; r<N-radius; r++){ for(let c=radius; c<N-radius; c++){ 
+                  let effect = 0;
+                  for(let rr=r-radius; rr<=r+radius; rr++){ for(let cc=c-radius; cc<=c+radius; cc++){
+                      if(board[rr][cc] === 3-cpuColor) effect++;
+                  }}
+                  if(effect > maxEffect){ maxEffect = effect; tr=r; tc=c; }
+              }}
+              if(maxEffect >= 3) score += maxEffect * 20;
+          }
+          else if(tType === 'enemy'){
+              const corners = [[0,0],[0,N-1],[N-1,0],[N-1,N-1]];
+              let validCorners = corners;
+              if(char.id === 'wei_sub') validCorners = corners;
+              if(char.id === 'wu_sub') { 
+                  validCorners = [];
+                  corners.forEach(p=>{if(board[p[0]][p[1]]===3-cpuColor) validCorners.push(p);});
+              }
+
+              for(const p of validCorners) if(board[p[0]][p[1]]===3-cpuColor){ tr=p[0]; tc=p[1]; score+=100; break; }
+              if(tr===-1 && char.id !== 'wu_sub'){ 
+                  const enemies=[]; for(let r=0;r<N;r++)for(let c=0;c<N;c++) if(board[r][c]===3-cpuColor) enemies.push([r,c]);
+                  let validEnemies = enemies;
+                  if(char.id === 'wei_sub') validEnemies = enemies.filter(p=>!isCorner(p[0],p[1]));
+                  
+                  if(validEnemies.length){ const t=validEnemies[Math.floor(Math.random()*validEnemies.length)]; tr=t[0]; tc=t[1]; score+=10; }
+              }
+          } 
+          else if(tType === 'empty'){
+              const corners = [[0,0],[0,N-1],[N-1,0],[N-1,N-1]];
+              if(char.id === 'wu_soldier'){
+                  for(const p of corners) if(board[p[0]][p[1]]===0){ tr=p[0]; tc=p[1]; score+=200; break; }
+              } else if(char.id === 'wei_soldier'){
+                  const emps=[]; for(let r=0;r<N;r++)for(let c=0;c<N;c++) if(board[r][c]===0 && !isCorner(r,c)) emps.push([r,c]);
+                  if(emps.length){ const t=emps[Math.floor(Math.random()*emps.length)]; tr=t[0]; tc=t[1]; score+=10; }
+              } else {
+                  for(const p of corners) if(board[p[0]][p[1]]===0){ tr=p[0]; tc=p[1]; score+=80; break; }
+                  if(tr===-1){
+                      const emps=[]; for(let r=0;r<N;r++)for(let c=0;c<N;c++) if(board[r][c]===0) emps.push([r,c]);
+                      if(emps.length){ const t=emps[Math.floor(Math.random()*emps.length)]; tr=t[0]; tc=t[1]; score+=10; }
+                  }
+              }
+          }
+          else if(tType === 'row'){ 
+              let maxE=-1; for(let r=0;r<N;r++){
+                  let cnt=0; for(let c=0;c<N;c++) if(board[r][c]===3-cpuColor) cnt++;
+                  if(cnt>maxE){ maxE=cnt; tr=r; }
+              }
+              if(tr!==-1) score+=30;
+          } 
+          else if(tType === 'col'){ 
+              let maxE=-1; for(let c=0;c<N;c++){
+                  let cnt=0; for(let r=0;r<N;r++) if(board[r][c]===3-cpuColor) cnt++;
+                  if(cnt>maxE){ maxE=cnt; tc=c; }
+              }
+              if(tc!==-1) score+=30;
+          }
+          else { score += 15; }
+          
+          if(score > maxScore && score > 40){ maxScore = score; bestChar = char; targetArgs = {tr, tc}; }
+      });
+
+      if(bestChar){
+          const sel = (cpuColor===1) ? document.getElementById('charA') : document.getElementById('charB');
+          sel.value = bestChar.id;
+          updateSkillButtons();
+          skillUses[cpuColor][bestChar.id]++;
+          skillLastTurn[cpuColor][bestChar.id] = moveCount;
+          let msg = applySkillEffect(cpuColor, bestChar.id, targetArgs.tr, targetArgs.tc);
+          appendLog(cpuColor, `(CPUスイッチ)${bestChar.name}`, msg);
+          return true;
+      }
+      return false;
+  }
+
+  function cpuTurn(){
+    if(!gameActive) return;
+    overlay.style.display='flex';
+    cpuTimeoutId = setTimeout(() => {
+      if(modeCpu.checked && (Math.random() < 0.3 || (countStones()[3-current] > countStones()[current]+10))){
+          if(tryCpuSkill()){ finishTurn(); return; }
+      }
+      const level = ['一般兵','兵長','副将','偏将軍','将軍','驃騎将軍','大将軍','大都督','軍師','皇帝','覇王'].indexOf(cpuStrengthSelect.value);
+      const moves = computeLegalMoves(current);
+      if(moves.length === 0){ finishTurn(); return; }
+      let best = moves[0];
+      if(level > 1){ 
+         let bestScore = -Infinity; const startTime = Date.now(); const limit = 2000;
+         let depth = 1;
+         if(N===13) { if(level>=9) depth=4; else if(level>=7) depth=3; else depth=2; }
+         else { if(level>=9) depth=2; else depth=1; }
+
+         for(const [r,c] of moves){
+            const nextB = board.map(row=>[...row]);
+            const fs = getFlips(r,c,current,nextB);
+            nextB[r][c]=current; fs.forEach(f=>nextB[f[0]][f[1]]=current);
+            let s = 0;
+            s = minimax(nextB, depth, false, current, -Infinity, Infinity, startTime, limit, level);
+            if(s > bestScore){ bestScore = s; best = [r,c]; }
+         }
+      } else { best = moves[Math.floor(Math.random()*moves.length)]; }
+      const fs = getFlips(best[0],best[1],current);
+      board[best[0]][best[1]]=current; fs.forEach(f=>board[f[0]][f[1]]=current);
+      moveCount++; sealedMoves = []; finishTurn();
+    }, 500);
+  }
+
+  function finishTurn(skillUsed = false){
+    current = 3 - current;
+    // 石を置いた音を鳴らす
+    if(AudioEngine && AudioEngine.playStoneSound) {
+        try { AudioEngine.playStoneSound(); } catch(e){}
+    }
+    overlay.style.display='none';
+    passBtn.style.display = 'none';
+    renderBoard(); updateStatus();
+    const legal = computeLegalMoves(current);
+    if(legal.length === 0){
+        const oppLegal = computeLegalMoves(3-current);
+        if(oppLegal.length === 0){ updateStatus(true); } 
+        else {
+            if(modeCpu.checked && current !== userColor){
+                cpuTimeoutId = setTimeout(()=>{ alert('CPUパス'); current = 3 - current; renderBoard(); updateStatus(); cpuTurn(); },500);
+            } else {
+                alert('置ける場所がありません！パスします。'); passBtn.style.display = 'inline-block';
+            }
+        }
+    } else {
+       if(modeCpu.checked && current !== userColor) cpuTurn();
+    }
+  }
+
+  function updateStatus(gameEnded=false){
+    const counts = countStones();
+    document.getElementById('blackCount').textContent = counts.b;
+    document.getElementById('whiteCount').textContent = counts.w;
+    if(gameEnded){
+      let winner = 0; 
+      if(counts.b > counts.w) winner = 1; else if(counts.w > counts.b) winner = 2;
+      let msg = winner===1 ? '黒の勝ち！' : (winner===2 ? '白の勝ち！' : '引き分け');
+      document.getElementById('turnText').textContent = msg;
+      const mode = modeCpu.checked ? 'cpu' : 'pvp';
+      saveHistory(mode, winner, userColor);
+      setControlsDuringGame(false); gameActive = false; alert(msg);
+    } else {
+      document.getElementById('turnText').textContent = (current===1 ? '黒' : '白') + 'の番';
+      updateSkillButtons();
+    }
+    
+    const pName = getPhaseName(); const percent = getCurrentPercent();
+    phaseBadge.innerHTML = `フェーズ：${pName}<br><span style="font-size:14px;">(${percent}%)</span>`;
+    
+    let pColor = 'var(--muted)';
+    if(pName.includes('前半')) pColor = '#2E7D32';
+    else if(pName.includes('中盤')) pColor = '#F57C00';
+    else if(pName.includes('後半')) pColor = '#D32F2F';
+    else if(pName.includes('最終')) pColor = '#C2185B';
+    phaseBadge.style.color = pColor;
+  }
+
+  function setControlsDuringGame(disable){
+    modeCpu.disabled = disable; modePvp.disabled = disable; sizeSelect.disabled = disable;
+    if(disable){
+        cpuStrengthSelect.disabled = true;
+        const radios = document.getElementsByName('userSide'); for(const r of radios) r.disabled=true;
+    } else {
+        cpuStrengthSelect.disabled = modePvp.checked; 
+        const radios = document.getElementsByName('userSide'); for(const r of radios) r.disabled=modePvp.checked;
+    }
+  }
+
+  function updateSkillButtons(){
+    const isCpu = modeCpu.checked;
+    const panelA = document.getElementById('panelA');
+    const panelB = document.getElementById('panelB');
+    if(isCpu) {
+        if(userColor === 1) { panelA.classList.remove('disabled-panel'); panelB.classList.add('disabled-panel'); }
+        else { panelA.classList.add('disabled-panel'); panelB.classList.remove('disabled-panel'); }
+    } else {
+        panelA.classList.remove('disabled-panel'); panelB.classList.remove('disabled-panel');
+    }
+    let enableA = false; if(gameActive && current === 1) { if(!isCpu) enableA = true; else if(userColor === 1) enableA = true; }
+    document.getElementById('prepareA').disabled = !enableA;
+    let enableB = false; if(gameActive && current === 2) { if(!isCpu) enableB = true; else if(userColor === 2) enableB = true; }
+    document.getElementById('prepareB').disabled = !enableB;
+
+    const a = META[charASelect.value], b = META[charBSelect.value];
+    let cdText = "";
+    if(a.cd){
+        const last = skillLastTurn[1][a.id];
+        if(last && (moveCount - last < a.cd)) cdText = ` <span style="color:red">(CD中:${a.cd-(moveCount-last)})</span>`;
+    }
+    document.getElementById('skillInfoA').innerHTML = `<strong style="color:var(--accent)">${a.desc}</strong><br>ランク:${a.rankName} | 解禁:${a.unlock}% | 残:${a.uses-skillUses[1][a.id]}/${a.uses}${cdText}`;
+    
+    cdText = "";
+    if(b.cd){
+        const last = skillLastTurn[2][b.id];
+        if(last && (moveCount - last < b.cd)) cdText = ` <span style="color:red">(CD中:${b.cd-(moveCount-last)})</span>`;
+    }
+    document.getElementById('skillInfoB').innerHTML = `<strong style="color:var(--accent)">${b.desc}</strong><br>ランク:${b.rankName} | 解禁:${b.unlock}% | 残:${b.uses-skillUses[2][b.id]}/${b.uses}${cdText}`;
+  }
+
+  function renderBoard(){
+    boardEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+    boardEl.style.gridTemplateRows = `repeat(${N}, 1fr)`; 
+    boardEl.innerHTML = '';
+    const legal = gameActive ? computeLegalMoves(current) : [];
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if(c===N-1) cell.classList.add('right-edge'); // 端の線処理用クラス
+      if(r===N-1) cell.classList.add('bottom-edge');
+      if(c===0) cell.classList.add('left-edge');
+      if(r===0) cell.classList.add('top-edge');
+
+      if(board[r][c]!==0){
+        const s = document.createElement('div'); s.className = 'stone ' + (board[r][c]===1?'black':'white'); cell.appendChild(s);
+      } else {
+        if(gameActive && !pendingSkill && legal.some(l=>l[0]===r && l[1]===c)){
+          const h = document.createElement('div'); h.className='hint'; cell.appendChild(h);
+        }
+        if(sealedMoves.some(s=>s[0]===r && s[1]===c)){
+          const x = document.createElement('div'); x.className='seal-mark'; x.textContent='×'; cell.appendChild(x);
+        }
+        if(bestMoveHint && bestMoveHint[0]===r && bestMoveHint[1]===c){
+            cell.classList.add('best-move-hint');
+        }
+        if(isStarPoint(r,c)){ const star=document.createElement('div'); star.className='star'; cell.appendChild(star); }
+      }
+      if(pendingSkill && pendingSkill.playerColor === current){
+         const isRowMode = pendingSkill.targetType === 'row';
+         const isColMode = pendingSkill.targetType === 'col';
+         if(isCellTargetableForPending(r,c,pendingSkill)){ cell.classList.add('targetable'); }
+         let selIdx = -1;
+         if (isRowMode) { selIdx = pendingSkill.selections.findIndex(s => s[0] === r); }
+         else if (isColMode) { selIdx = pendingSkill.selections.findIndex(s => s[1] === c); }
+         else { selIdx = pendingSkill.selections.findIndex(s => s[0] === r && s[1] === c); }
+         if(selIdx >= 0){
+             const m = document.createElement('div'); m.className='selected-mark'; m.textContent=selIdx+1; cell.appendChild(m);
+         }
+      }
+      cell.onclick = () => onCellClick(r,c);
+      boardEl.appendChild(cell);
+    }
+  }
+
+  function onCellClick(r,c){
+    if(modeCpu.checked && current !== userColor) return;
+    if(pendingSkill){ handlePendingSelection(r,c); return; }
+    if(sealedMoves.some(s=>s[0]===r && s[1]===c)){ alert('封印されています'); return; }
+    const fs = getFlips(r,c,current);
+    if(fs.length > 0){
+      board[r][c]=current; fs.forEach(f=>board[f[0]][f[1]]=current);
+      sealedMoves = []; finishTurn();
+    }
+  }
+
+  function initBoard(size, start){
+    if(cpuTimeoutId) clearTimeout(cpuTimeoutId);
+    overlay.style.display = 'none'; 
+    N=size; 
+    board=Array.from({length:N},()=>Array(N).fill(0));
+    
+    // 【交点打ちのための初期配置】
+    const mid = Math.floor(N/2); // 9
+    board[mid-1][mid-1] = 2; // 白
+    board[mid][mid]     = 2; // 白
+    board[mid-1][mid]   = 1; // 黒
+    board[mid][mid-1]   = 1; // 黒
+
+    current=1; gameActive=start; sealedMoves=[];
+    CHAR.forEach(c=>{ skillUses[1][c.id]=skillUses[2][c.id]=0; skillLastTurn[1][c.id]=skillLastTurn[2][c.id]=0; });
+    const radios = document.getElementsByName('userSide');
+    for(const r of radios){ if(r.checked){ userColor = (r.value==='black'?1:2); break; } }
+    setControlsDuringGame(gameActive); 
+    renderBoard(); updateStatus();
+    if(start && modeCpu.checked && current !== userColor) cpuTurn();
+  }
+
+  const updateSettings = () => { setControlsDuringGame(gameActive); updateSkillButtons(); };
+  modeCpu.addEventListener('change', updateSettings);
+  modePvp.addEventListener('change', updateSettings);
+  modeCpu.addEventListener('click', updateSettings);
+  modePvp.addEventListener('click', updateSettings);
+
+  document.getElementById('startBtn').onclick = () => { if(gameActive) { alert('対局中です'); return; } initBoard(parseInt(sizeSelect.value), true); };
+  document.getElementById('newGameBtn').onclick = () => { if(confirm('リセットしますか？')) initBoard(parseInt(sizeSelect.value), false); };
+  passBtn.onclick = () => { alert('パスしました。'); current = 3 - current; passBtn.style.display = 'none'; renderBoard(); updateStatus(); if(modeCpu.checked && current !== userColor) cpuTurn(); };
+
+  document.getElementById('prepareA').onclick = () => prepareSkill(1, charASelect.value);
+  document.getElementById('confirmA').onclick = () => confirmPending(1);
+  document.getElementById('cancelA').onclick = () => cancelPending(1);
+  document.getElementById('prepareB').onclick = () => prepareSkill(2, charBSelect.value);
+  document.getElementById('confirmB').onclick = () => confirmPending(2);
+  document.getElementById('cancelB').onclick = () => cancelPending(2);
+  document.getElementById('cancelPendingBtn').onclick = () => { if(pendingSkill) cancelPending(pendingSkill.playerColor); };
+
+  const cA = document.getElementById('charA'), cB = document.getElementById('charB');
+  let currentRank = ''; let grpA = null, grpB = null;
+  CHAR.forEach(c=>{
+      if(c.rankName !== currentRank){
+          currentRank = c.rankName;
+          grpA = document.createElement('optgroup'); grpA.label = currentRank; cA.appendChild(grpA);
+          grpB = document.createElement('optgroup'); grpB.label = currentRank; cB.appendChild(grpB);
+      }
+      const opt=()=> {const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; return o;};
+      grpA.appendChild(opt()); grpB.appendChild(opt());
+  });
+  charASelect.onchange = charBSelect.onchange = updateSkillButtons;
+  
+  loadHistory();
+  setControlsDuringGame(false);
+  initBoard(19, false);
+})();
+</script>
+</body>
+</html>
